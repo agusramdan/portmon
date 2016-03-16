@@ -8,24 +8,26 @@ import java.awt.Font;
 import java.awt.Image;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.lang.reflect.InvocationTargetException;
 import java.util.Collections;
 import java.util.EventListener;
 import java.util.EventObject;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 import javax.swing.ImageIcon;
 import javax.swing.JButton;
-import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JTable;
 import javax.swing.JTextArea;
 import javax.swing.SwingConstants;
+import javax.swing.SwingUtilities;
 import javax.swing.Timer;
-import javax.swing.UIManager;
 import javax.swing.event.CellEditorListener;
-import javax.swing.plaf.basic.BasicLookAndFeel;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.TableCellEditor;
@@ -35,29 +37,31 @@ import javax.swing.table.TableRowSorter;
 
 /**
  * A simple Port monitor.
- * 
+ *
  * @author chitas
  */
 public class PortMonGUI extends javax.swing.JFrame {
 
     private static final Logger logger = Logger.getLogger(PortMonGUI.class.getName());
-    
+
     private static final Image ICON = new ImageIcon(PortMonGUI.class.getResource("/icons/portmon.png")).getImage();
     private static final ImageIcon ICON_INFO = new ImageIcon(PortMonGUI.class.getResource("/icons/info.png"));
     private static final ImageIcon ICON_TERMINATE = new ImageIcon(PortMonGUI.class.getResource("/icons/terminate.png"));
-    
+
     private static final Font MONOSPACE_FONT = new Font(Font.MONOSPACED, Font.PLAIN, 12);
-    
+
     private final AtomicBoolean refreshing = new AtomicBoolean(false);
-    
+
+    private final BlockingQueue<String> refreshQueue = new LinkedBlockingDeque<>();
+
     private final Timer autoRefreshTimer;
-    
+
     static class TableButton extends JButton implements TableCellRenderer, TableCellEditor {
-        
+
         private int selectedRow;
         private int selectedColumn;
         List<TableButtonListener> listener;
-        
+
         public TableButton(ImageIcon icon) {
             super("", icon);
             setBorderPainted(false);
@@ -72,21 +76,21 @@ public class PortMonGUI extends javax.swing.JFrame {
                 }
             });
         }
-        
+
         public void addTableButtonListener(TableButtonListener l) {
             listener.add(l);
         }
-        
+
         public void removeTableButtonListener(TableButtonListener l) {
             listener.remove(l);
         }
-        
+
         @Override
         public Component getTableCellRendererComponent(JTable table,
                 Object value, boolean isSelected, boolean hasFocus, int row, int col) {
             return this;
         }
-        
+
         @Override
         public Component getTableCellEditorComponent(JTable table,
                 Object value, boolean isSelected, int row, int col) {
@@ -94,69 +98,69 @@ public class PortMonGUI extends javax.swing.JFrame {
             selectedColumn = col;
             return this;
         }
-        
+
         @Override
         public void addCellEditorListener(CellEditorListener arg0) {
         }
-        
+
         @Override
         public void cancelCellEditing() {
         }
-        
+
         @Override
         public Object getCellEditorValue() {
             return "";
         }
-        
+
         @Override
         public boolean isCellEditable(EventObject arg0) {
             return true;
         }
-        
+
         @Override
         public void removeCellEditorListener(CellEditorListener arg0) {
         }
-        
+
         @Override
         public boolean shouldSelectCell(EventObject arg0) {
             return true;
         }
-        
+
         @Override
         public boolean stopCellEditing() {
             return true;
         }
     }
-    
+
     static interface TableButtonListener extends EventListener {
-        
+
         public void tableButtonClicked(int row, int col);
     }
-    
+
     private static class PortsTableModel extends AbstractTableModel {
-        
+
         private List<PortMon.Port> ports;
-        
+
         PortsTableModel() {
             ports = new LinkedList<>();
         }
-        
+
         public void setPorts(List<PortMon.Port> ports) {
             this.ports = ports;
-            
+
             fireTableDataChanged();
         }
-        
+
         @Override
         public int getRowCount() {
             return ports.size();
         }
-        
+
         @Override
         public int getColumnCount() {
             return 5;
         }
-        
+
         @Override
         public String getColumnName(int column) {
             switch (column) {
@@ -173,7 +177,7 @@ public class PortMonGUI extends javax.swing.JFrame {
             }
             return null;
         }
-        
+
         @Override
         public Class getColumnClass(int column) {
             switch (column) {
@@ -190,12 +194,12 @@ public class PortMonGUI extends javax.swing.JFrame {
             }
             return Object.class;
         }
-        
+
         @Override
         public boolean isCellEditable(int rowIndex, int columnIndex) {
             return  columnIndex == 4 ||  columnIndex == 3;
         }
-        
+
         @Override
         public Object getValueAt(int rowIndex, int columnIndex) {
             switch (columnIndex) {
@@ -212,9 +216,9 @@ public class PortMonGUI extends javax.swing.JFrame {
             }
             return null;
         }
-        
+
     }
-    
+
     private PortsTableModel portsTableModel;
 
     /**
@@ -224,16 +228,16 @@ public class PortMonGUI extends javax.swing.JFrame {
         portsTableModel = new PortsTableModel();
         initComponents();
         setIconImage(ICON);
-        
+
         int autoRefreshDelaySeconds = (Integer) autoRefreshSecondsSpinner.getModel().getValue();
-        
+
         autoRefreshTimer = new Timer(autoRefreshDelaySeconds * 1000, new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
                 refresh();
             }
         });
-        
+
         TableButton infoActionButton = new TableButton(ICON_INFO);
         infoActionButton.addTableButtonListener(new TableButtonListener() {
             @Override
@@ -243,17 +247,17 @@ public class PortMonGUI extends javax.swing.JFrame {
                     PortMon.Port port = (PortMon.Port) value;
                     JTextArea info = new JTextArea(PortMon.processInfo(port.pid).substring(1)
                             ,12
-                            ,30);
+                            ,40);
                     info.setFont(MONOSPACE_FONT);
                     JOptionPane.showMessageDialog(PortMonGUI.this,
                             info,
-                            "Process Info",
+                            "Portmon - Process Info",
                             JOptionPane.PLAIN_MESSAGE);
                 }
             }
         });
         infoActionButton.setToolTipText("Show process info");
-        
+
         TableButton killActionButton = new TableButton(ICON_TERMINATE);
         killActionButton.addTableButtonListener(new TableButtonListener() {
             @Override
@@ -267,7 +271,7 @@ public class PortMonGUI extends javax.swing.JFrame {
                                     + " (owner of port : "
                                     + port.localPort
                                     + ") ?",
-                            "Kill Port Owner",
+                            "Portmon - Kill Port Owner",
                             JOptionPane.YES_NO_OPTION);
                     if (answer == JOptionPane.YES_OPTION) {
                         PortMon.killProcess(port.pid);
@@ -285,58 +289,99 @@ public class PortMonGUI extends javax.swing.JFrame {
             }
         });
         killActionButton.setToolTipText("Kill process owning the port.");
-        
+
         DefaultTableCellRenderer rightAlignedTableCellRenderer = new DefaultTableCellRenderer();
         rightAlignedTableCellRenderer.setHorizontalAlignment(SwingConstants.TRAILING);
-        
+
         TableColumn tableColumn;
-        
+
         tableColumn = portsTable.getColumnModel().getColumn(1);
         tableColumn.setWidth(80);
         tableColumn.setMaxWidth(80);
         tableColumn.setCellRenderer(rightAlignedTableCellRenderer);
-        
+
         tableColumn = portsTable.getColumnModel().getColumn(2);
         tableColumn.setWidth(100);
         tableColumn.setMaxWidth(100);
         tableColumn.setCellRenderer(rightAlignedTableCellRenderer);
-        
+
         tableColumn = portsTable.getColumnModel().getColumn(3);
         tableColumn.setWidth(20);
         tableColumn.setMaxWidth(20);
         tableColumn.setCellEditor(infoActionButton);
         tableColumn.setCellRenderer(infoActionButton);
-        
+
         tableColumn = portsTable.getColumnModel().getColumn(4);
         tableColumn.setWidth(20);
         tableColumn.setMaxWidth(20);
         tableColumn.setCellEditor(killActionButton);
         tableColumn.setCellRenderer(killActionButton);
-        
+
         portsTable.setRowSorter(new TableRowSorter(portsTableModel));
         refresh();
         portsTable.getRowSorter().toggleSortOrder(1);
+
+        new Thread(new Runnable() {
+
+            @Override
+            public void run() {
+                try {
+                    while (true) {
+                        final String ports = refreshQueue.take();
+                        // Coalesce
+                        int i = 0;
+                        String nextPorts = refreshQueue.peek();
+                        while (nextPorts != null && ports.equals(nextPorts)) {
+                            refreshQueue.remove();
+                            i++;
+                            nextPorts = refreshQueue.peek();
+                        }
+                        if (i > 0) {
+                            logger.log(Level.FINE, "Coalesced:" + (i));
+                        }
+                        refresh(ports);
+                        // 5 seconds gap between refresh
+                        Thread.sleep(5000);
+                    }
+                } catch (InterruptedException ex) {
+                    logger.log(Level.SEVERE, null, ex);
+                }
+            }
+
+        }, "Refresh Queue").start();
     }
-    
+
     private void refresh() {
-        refresh(portsComboBox.getSelectedItem().toString().trim());
+        try {
+            refreshQueue.put(portsComboBox.getSelectedItem().toString().trim());
+        } catch (InterruptedException ex) {
+            logger.log(Level.SEVERE, null, ex);
+        }
     }
-    
+
     private void refresh(String ports) {
         ports = ports.trim();
         refreshImpl(ports.split(","));
     }
-    
+
     private void refreshImpl(String... ports) {
         if (refreshing.compareAndSet(false, true)) {
             try {
-                portsTableModel.setPorts(PortMon.getPorts(ports));
+                final List<PortMon.Port> portObjects = PortMon.getPorts(ports);
+                SwingUtilities.invokeLater(new Runnable() {
+
+                    @Override
+                    public void run() {
+                        // Update GUI
+                        portsTableModel.setPorts(portObjects);
+                    }
+                });
             } finally {
                 refreshing.set(false);
             }
         }
     }
-    
+
     private void startStopAutoRefresh() {
         if (autoRefreshCheckBox.isSelected()) {
             refreshButton.setEnabled(false);
@@ -369,13 +414,13 @@ public class PortMonGUI extends javax.swing.JFrame {
         setDefaultCloseOperation(javax.swing.WindowConstants.EXIT_ON_CLOSE);
         setTitle("Portmon");
         setName("portsMonFrame"); // NOI18N
-        setPreferredSize(new java.awt.Dimension(400, 350));
 
         portsLabel.setText("Ports:");
 
         portsComboBox.setEditable(true);
         portsComboBox.setModel(new javax.swing.DefaultComboBoxModel(new String[] { " ", "2910,8080,8765" }));
         portsComboBox.setSelectedItem(" ");
+        portsComboBox.setToolTipText("Enter comma separated list of port numbers");
         portsComboBox.addActionListener(new java.awt.event.ActionListener() {
             public void actionPerformed(java.awt.event.ActionEvent evt) {
                 portsComboBoxActionPerformed(evt);
@@ -383,10 +428,8 @@ public class PortMonGUI extends javax.swing.JFrame {
         });
 
         refreshButton.setIcon(new javax.swing.ImageIcon(getClass().getResource("/icons/refresh.png"))); // NOI18N
-        refreshButton.setBorderPainted(false);
-        refreshButton.setContentAreaFilled(false);
-        refreshButton.setFocusPainted(false);
-        refreshButton.setMargin(new java.awt.Insets(0, 0, 0, 0));
+        refreshButton.setToolTipText("Refresh");
+        refreshButton.setMargin(new java.awt.Insets(0, 2, 0, 2));
         refreshButton.addActionListener(new java.awt.event.ActionListener() {
             public void actionPerformed(java.awt.event.ActionEvent evt) {
                 refreshButtonActionPerformed(evt);
@@ -448,7 +491,7 @@ public class PortMonGUI extends javax.swing.JFrame {
                     .addComponent(secondsLabel)
                     .addComponent(autoRefreshCheckBox))
                 .addGap(10, 10, 10)
-                .addComponent(portsScrollpane, javax.swing.GroupLayout.DEFAULT_SIZE, 259, Short.MAX_VALUE)
+                .addComponent(portsScrollpane, javax.swing.GroupLayout.DEFAULT_SIZE, 258, Short.MAX_VALUE)
                 .addContainerGap())
         );
 
@@ -488,7 +531,7 @@ public class PortMonGUI extends javax.swing.JFrame {
         }
         //</editor-fold>
         //</editor-fold>
-        
+
         //</editor-fold>
 
         /* Create and display the form */
