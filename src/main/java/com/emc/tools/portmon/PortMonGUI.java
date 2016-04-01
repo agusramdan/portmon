@@ -33,6 +33,7 @@ import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.TableCellEditor;
 import javax.swing.table.TableCellRenderer;
 import javax.swing.table.TableColumn;
+import javax.swing.table.TableColumnModel;
 import javax.swing.table.TableRowSorter;
 
 /**
@@ -158,7 +159,7 @@ public class PortMonGUI extends javax.swing.JFrame {
 
         @Override
         public int getColumnCount() {
-            return 5;
+            return 6;
         }
 
         @Override
@@ -171,8 +172,10 @@ public class PortMonGUI extends javax.swing.JFrame {
                 case 2:
                     return "PID";
                 case 3:
-                    return "Info";
+                    return "State";
                 case 4:
+                    return "Info";
+                case 5:
                     return "Actions";
             }
             return null;
@@ -188,8 +191,10 @@ public class PortMonGUI extends javax.swing.JFrame {
                 case 2:
                     return String.class;
                 case 3:
-                    return PortMon.Port.class;
+                    return String.class;
                 case 4:
+                    return PortMon.Port.class;
+                case 5:
                     return PortMon.Port.class;
             }
             return Object.class;
@@ -210,8 +215,10 @@ public class PortMonGUI extends javax.swing.JFrame {
                 case 2:
                     return ports.get(rowIndex).pid + "  ";
                 case 3:
-                    return ports.get(rowIndex);
+                    return ports.get(rowIndex).state;
                 case 4:
+                    return ports.get(rowIndex);
+                case 5:
                     return ports.get(rowIndex);
             }
             return null;
@@ -294,24 +301,29 @@ public class PortMonGUI extends javax.swing.JFrame {
         rightAlignedTableCellRenderer.setHorizontalAlignment(SwingConstants.TRAILING);
 
         TableColumn tableColumn;
+        final TableColumnModel columnModel = portsTable.getColumnModel();
 
-        tableColumn = portsTable.getColumnModel().getColumn(1);
+        tableColumn = columnModel.getColumn(1);
         tableColumn.setWidth(80);
         tableColumn.setMaxWidth(80);
         tableColumn.setCellRenderer(rightAlignedTableCellRenderer);
 
-        tableColumn = portsTable.getColumnModel().getColumn(2);
+        tableColumn = columnModel.getColumn(2);
         tableColumn.setWidth(100);
         tableColumn.setMaxWidth(100);
         tableColumn.setCellRenderer(rightAlignedTableCellRenderer);
 
-        tableColumn = portsTable.getColumnModel().getColumn(3);
+        tableColumn = columnModel.getColumn(3);
+        tableColumn.setWidth(160);
+        tableColumn.setMaxWidth(160);
+
+        tableColumn = columnModel.getColumn(4);
         tableColumn.setWidth(20);
         tableColumn.setMaxWidth(20);
         tableColumn.setCellEditor(infoActionButton);
         tableColumn.setCellRenderer(infoActionButton);
 
-        tableColumn = portsTable.getColumnModel().getColumn(4);
+        tableColumn = columnModel.getColumn(5);
         tableColumn.setWidth(20);
         tableColumn.setMaxWidth(20);
         tableColumn.setCellEditor(killActionButton);
@@ -367,7 +379,7 @@ public class PortMonGUI extends javax.swing.JFrame {
     private void refreshImpl(String... ports) {
         if (refreshing.compareAndSet(false, true)) {
             try {
-                final List<PortMon.Port> portObjects = PortMon.getPorts(ports);
+                final List<PortMon.Port> portObjects = PortMon.getPorts(listeningOnly.isSelected(), ports);
                 SwingUtilities.invokeLater(new Runnable() {
 
                     @Override
@@ -404,6 +416,7 @@ public class PortMonGUI extends javax.swing.JFrame {
 
         portsLabel = new javax.swing.JLabel();
         portsComboBox = new javax.swing.JComboBox();
+        listeningOnly = new javax.swing.JCheckBox();
         refreshButton = new javax.swing.JButton();
         autoRefreshCheckBox = new javax.swing.JCheckBox();
         autoRefreshSecondsSpinner = new javax.swing.JSpinner();
@@ -414,6 +427,7 @@ public class PortMonGUI extends javax.swing.JFrame {
         setDefaultCloseOperation(javax.swing.WindowConstants.EXIT_ON_CLOSE);
         setTitle("Portmon");
         setName("portsMonFrame"); // NOI18N
+        setPreferredSize(new java.awt.Dimension(600, 400));
 
         portsLabel.setText("Ports:");
 
@@ -424,6 +438,14 @@ public class PortMonGUI extends javax.swing.JFrame {
         portsComboBox.addActionListener(new java.awt.event.ActionListener() {
             public void actionPerformed(java.awt.event.ActionEvent evt) {
                 portsComboBoxActionPerformed(evt);
+            }
+        });
+
+        listeningOnly.setSelected(true);
+        listeningOnly.setText("LISTENING ONLY");
+        listeningOnly.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                listeningOnlyActionPerformed(evt);
             }
         });
 
@@ -469,10 +491,12 @@ public class PortMonGUI extends javax.swing.JFrame {
                                 .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.UNRELATED)
                                 .addComponent(autoRefreshSecondsSpinner, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
                                 .addGap(12, 12, 12)
-                                .addComponent(secondsLabel)
-                                .addGap(0, 0, Short.MAX_VALUE))
-                            .addComponent(portsComboBox, 0, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
-                        .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                                .addComponent(secondsLabel))
+                            .addGroup(layout.createSequentialGroup()
+                                .addComponent(portsComboBox, 0, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.UNRELATED)
+                                .addComponent(listeningOnly)))
+                        .addGap(6, 6, 6)
                         .addComponent(refreshButton)))
                 .addContainerGap())
         );
@@ -483,7 +507,8 @@ public class PortMonGUI extends javax.swing.JFrame {
                 .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING, false)
                     .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.BASELINE)
                         .addComponent(portsLabel)
-                        .addComponent(portsComboBox, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE))
+                        .addComponent(portsComboBox, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
+                        .addComponent(listeningOnly))
                     .addComponent(refreshButton, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
                 .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
                 .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.BASELINE)
@@ -491,7 +516,7 @@ public class PortMonGUI extends javax.swing.JFrame {
                     .addComponent(secondsLabel)
                     .addComponent(autoRefreshCheckBox))
                 .addGap(10, 10, 10)
-                .addComponent(portsScrollpane, javax.swing.GroupLayout.DEFAULT_SIZE, 258, Short.MAX_VALUE)
+                .addComponent(portsScrollpane, javax.swing.GroupLayout.DEFAULT_SIZE, 256, Short.MAX_VALUE)
                 .addContainerGap())
         );
 
@@ -509,6 +534,10 @@ public class PortMonGUI extends javax.swing.JFrame {
     private void portsComboBoxActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_portsComboBoxActionPerformed
         refresh();
     }//GEN-LAST:event_portsComboBoxActionPerformed
+
+    private void listeningOnlyActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_listeningOnlyActionPerformed
+        refresh();
+    }//GEN-LAST:event_listeningOnlyActionPerformed
 
     /**
      * @param args the command line arguments
@@ -546,6 +575,7 @@ public class PortMonGUI extends javax.swing.JFrame {
     // Variables declaration - do not modify//GEN-BEGIN:variables
     private javax.swing.JCheckBox autoRefreshCheckBox;
     private javax.swing.JSpinner autoRefreshSecondsSpinner;
+    private javax.swing.JCheckBox listeningOnly;
     private javax.swing.JComboBox portsComboBox;
     private javax.swing.JLabel portsLabel;
     private javax.swing.JScrollPane portsScrollpane;

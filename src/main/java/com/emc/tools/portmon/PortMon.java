@@ -19,6 +19,8 @@ import java.util.logging.Logger;
  * @author chitas
  */
 public class PortMon {
+    
+    private static final String LISTENING = "LISTENING";
 
     private static final Logger logger = Logger.getLogger(PortMon.class.getName());
 
@@ -28,6 +30,7 @@ public class PortMon {
         String localHost;
         String localPort;
         String pid;
+        String state;
 
         @Override
         public String toString() {
@@ -37,7 +40,7 @@ public class PortMon {
 
     private static final List<String> netstatPrefix = new LinkedList<>(
             Arrays.<String>asList(
-                    "cmd", "/C", "netstat", "-anop", "tcp", "|", "findstr", "LISTENING", "|", "findstr"));
+                    "cmd", "/C", "netstat", "-anop", "tcp", "|", "findstr"));
 
     private static final List<String> killPidPrefix = new LinkedList<>(
             Arrays.<String>asList(
@@ -48,7 +51,7 @@ public class PortMon {
             Arrays.<String>asList(
                     "cmd", "/C", "tasklist", "/V", "/FO", "LIST", "/FI"));
 
-    static List<Port> getPorts(String... ports) {
+    static List<Port> getPorts(boolean listeningOnly, String... ports) {
         List<Port> portsList = new LinkedList<>();
         List<Integer> portInts = new LinkedList<>();
         for (String port : ports) {
@@ -79,11 +82,14 @@ public class PortMon {
                 p.raw = raw;
                 String[] parts = raw.split("\\s+");
                 if (parts.length == 6) {
-                    String[] hostAndPort = parts[2].split(":");
-                    p.localHost = hostAndPort[0];
-                    p.localPort = hostAndPort[1];
-                    p.pid = parts[5];
-                    portsList.add(p);
+                    if (!listeningOnly || LISTENING.equals(parts[4])) {
+                        String[] hostAndPort = parts[2].split(":");
+                        p.localHost = hostAndPort[0];
+                        p.localPort = hostAndPort[1];
+                        p.state = parts[4];
+                        p.pid = parts[5];
+                        portsList.add(p);
+                    }
                 }
             }
             netstatProcess.waitFor();
@@ -100,6 +106,7 @@ public class PortMon {
 
         return portsList;
     }
+
 
     static void killProcess(String pidString) {
         List<String> killPid = new LinkedList<>(killPidPrefix);
@@ -143,7 +150,7 @@ public class PortMon {
     }
 
     public static void main(String[] args) {
-        List<Port> ports = getPorts(args);
+        List<Port> ports = getPorts(true, args);
         for (Port port : ports) {
             System.out.println(port.pid);
         }
